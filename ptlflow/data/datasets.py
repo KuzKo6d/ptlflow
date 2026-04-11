@@ -31,6 +31,16 @@ from ptlflow.utils import flow_utils
 
 THIS_DIR = Path(__file__).resolve().parent
 
+# My Imports
+import random
+import sys
+from pathlib import Path
+
+eval_dir = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(eval_dir))
+from OF_dataset.scripts.datasets import fabric, dataset
+from OF_dataset.scripts.augmentation import (io, compose, augment, photometric, FrameData)
+
 
 class BaseFlowDataset(Dataset):
     """Manage optical flow dataset loading.
@@ -2648,3 +2658,95 @@ class ViperDataset(BaseFlowDataset):
                     raise NotImplementedError()
 
         self._log_status()
+
+class FrameworkDataset(BaseFlowDataset):
+    def __init__(  # noqa: C901
+            self,
+            root_dir: str,
+            transform: Callable[[Dict[str, torch.Tensor]], Dict[str, torch.Tensor]] = None,
+            max_flow: float = 10000.0,
+            get_valid_mask: bool = True,
+            get_backward: bool = True,
+            get_meta: bool = True,
+            sequence_length: int = 2,
+            sequence_position: str = "first",
+            max_seq: Optional[int] = None,
+    ) -> None:
+        super().__init__(
+            dataset_name="framework",
+            split_name="trainval",
+            transform=transform,
+            max_flow=max_flow,
+            get_valid_mask=get_valid_mask,
+            get_occlusion_mask=False,
+            get_motion_boundary_mask=False,
+            get_backward=False,
+            get_meta=get_meta,
+        )
+        self.root_dir = root_dir
+        self.sequence_length = 2
+
+    def _generate_frame(self):
+        # Generate frames.
+        while (True):
+            dataset_front = random.choice(list(fabric.generate_variants("skoltech", render_mode=False)))
+            dataset_back = random.choice(list(fabric.generate_variants("scannet", render_mode=False)))
+
+            # Choose frames
+            frame_front0 = random.choice(range(0, dataset_front.frames_count - 1))
+            frame_back0 = random.choice(range(0, dataset_back.frames_count - 1))
+
+            data_front, frame_front1 = io.load_frame(dataset_front, frame_front0)
+            data_back, frame_back1 = io.load_frame(dataset_back, frame_back0)
+
+            if data_front != None and data_back != None:
+                break
+
+        # Augment and compose
+        compose.resize(data_front, data_back.h, data_back.w)
+
+        H_front = augment.random(data_front)
+        H_back = augment.random(data_back)
+        augment.apply(data_front, H_front)
+        augment.apply(data_back, H_back)
+
+        data = compose.by_mask(data_front, data_back)
+
+        photometric.random(data)
+
+        io.write(data, frame_front0, frame_front1)
+        return data.rgb0, data.rgb1, data.forward_flow, data.backward_flow, data.mask0
+
+    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+        inputs = {}
+
+        rgb0, rgb1, f_flow, b_flow, f_mask = self._generate_frame()
+
+        # Form rgb
+        combined_rgb = np.stack([rgb0, rgb1], axis=0)
+
+        inputs["images"] = combined_rgb
+        inputs["flows"] = f_flow
+        if self.get_backward:
+            inputs["flows_b"] = b_flow
+        if self.get_valid_mask:
+            inputs["valids"] = f_mask
+            inputs["valid"] = np.ones_like(f_mask).astype(np.float32)
+
+        if self.transform is not None:
+            inputs = self.transform(inputs)
+
+        if self.get_meta:
+            dummy_path = f"{self.dataset_name}_{index:05d}.png"
+
+            inputs["meta"] = {
+                "dataset_name": self.dataset_name,
+                "split_name": self.split_name,
+                "index": index,
+                "image_paths": [dummy_path, dummy_path]
+            }
+
+        return inputs
+
+    def __len__(self) -> int:
+        return 1

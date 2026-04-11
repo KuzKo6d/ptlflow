@@ -129,7 +129,7 @@ python validate.py --config ptlflow/models/dpflow/configs/dpflow-validate.yaml -
 ### Kubic-NK
 
 ```bash
-python validate.py --config ptlflow/models/dpflow/configs/dpflow-validate.yaml --ckpt sintel --data.val_dataset kubric --kubric_root_dir /path/to/kubric-nk/1k
+python validate.py --config ptlflow/models/dpflow/configs/dpflow-validate.yaml --ckpt sintel --data.val_dataset kubric --kubric_root_dir /path/to/kubric-2k/1k
 ```
 
 To validate on other resolutions, just replace the path in `--kubric_root_dir` to the respective folder containing the data at another resolution.

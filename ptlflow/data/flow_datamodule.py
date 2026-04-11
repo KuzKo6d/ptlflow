@@ -36,6 +36,7 @@ from ptlflow.data.datasets import (
     SpringDataset,
     TartanAirDataset,
     ViperDataset,
+    FrameworkDataset
 )
 from ptlflow.utils.utils import make_divisible
 
@@ -66,6 +67,7 @@ class FlowDataModule(pl.LightningDataModule):
         kubric_root_dir: Optional[str] = None,
         middlebury_st_root_dir: Optional[str] = None,
         viper_root_dir: Optional[str] = None,
+        framework_root_dir: Optional[str] = None,
         dataset_config_path: str = "./datasets.yaml",
     ):
         super().__init__()
@@ -93,6 +95,7 @@ class FlowDataModule(pl.LightningDataModule):
         self.kubric_root_dir = kubric_root_dir
         self.middlebury_st_root_dir = middlebury_st_root_dir
         self.viper_root_dir = viper_root_dir
+        self.framework_root_dir = framework_root_dir
         self.dataset_config_path = dataset_config_path
 
         self.predict_dataset_parsed = None
@@ -656,8 +659,10 @@ class FlowDataModule(pl.LightningDataModule):
             transform = ft.ToTensor()
 
         get_backward = False
-        sequence_length = 2
-        sequence_position = "first"
+        # sequence_length = 3 # memfof modification
+        # sequence_position = "middle" # memfof modification
+        sequence_length = 2 # default
+        sequence_position = "first" # default
         max_seq = None
         for v in args:
             if v == "back":
@@ -1280,4 +1285,28 @@ class FlowDataModule(pl.LightningDataModule):
         dataset.mb_b_paths = dataset.mb_b_paths[:1]
         dataset.metadata = dataset.metadata[:1]
 
+        return dataset
+
+    def _get_framework_dataset(self, is_train: bool, *args: str) -> Dataset:
+        # 1. Define the transform (standard RAFT style or simple ToTensor)
+        if is_train:
+            # You can use standard augmentations or just ToTensor
+            # since your generator already does some augmentation.
+            transform = ft.Compose([ft.ToTensor()])
+        else:
+            transform = ft.ToTensor()
+
+        get_backward = False
+        for v in args:
+            if v == "back":
+                get_backward = True
+
+
+        # 2. Instantiate your custom class
+        dataset = FrameworkDataset(
+            root_dir=self.framework_root_dir,
+            transform=transform,
+            get_backward=get_backward,  # Or hardcode if needed
+            get_meta=True
+        )
         return dataset

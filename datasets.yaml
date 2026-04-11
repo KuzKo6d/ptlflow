@@ -9,4 +9,5 @@ kitti_2015: /path/to/KITTI/2015
 hd1k: /path/to/HD1K
 tartanair: /path/to/tartanair
 spring: /path/to/spring
-kubric: /path/to/kubric
+kubric: /home/kuzko/Documents/graphics-media-lab/eval/datasets/kubric-nk/2k
+framework: /home/kuzko/Documents/graphics-media-lab/skoltech
