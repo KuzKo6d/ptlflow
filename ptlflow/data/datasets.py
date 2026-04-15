@@ -2714,7 +2714,7 @@ class FrameworkDataset(BaseFlowDataset):
 
         photometric.random(data)
 
-        io.write(data, frame_front0, frame_front1)
+        # io.write(data, frame_front0, frame_front1)
         return data.rgb0, data.rgb1, data.forward_flow, data.backward_flow, data.mask0
 
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
@@ -2749,4 +2749,4 @@ class FrameworkDataset(BaseFlowDataset):
         return inputs
 
     def __len__(self) -> int:
-        return 1
+        return 600
