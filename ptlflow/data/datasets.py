@@ -20,6 +20,7 @@ import math
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+import cv2
 import cv2 as cv
 from einops import rearrange
 from loguru import logger
@@ -2722,6 +2723,9 @@ class FrameworkDataset(BaseFlowDataset):
 
         rgb0, rgb1, f_flow, b_flow, f_mask = self._generate_frame()
 
+        # Prepatring data
+        rgb0, rgb1 = cv2.cvtColor(rgb0, cv2.COLOR_RGB2BGR), cv2.cvtColor(rgb1, cv2.COLOR_RGB2BGR)
+
         # Form rgb
         combined_rgb = np.stack([rgb0, rgb1], axis=0)
 
@@ -2730,8 +2734,8 @@ class FrameworkDataset(BaseFlowDataset):
         if self.get_backward:
             inputs["flows_b"] = b_flow
         if self.get_valid_mask:
-            inputs["valids"] = f_mask
-            inputs["valid"] = np.ones_like(f_mask).astype(np.float32)
+            inputs["valids"] = (f_mask > 0).astype(np.float32)
+            # inputs["valid"] = np.ones_like(f_mask).astype(np.float32)
 
         if self.transform is not None:
             inputs = self.transform(inputs)
