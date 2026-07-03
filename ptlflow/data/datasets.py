@@ -38,8 +38,8 @@ from pathlib import Path
 
 eval_dir = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(eval_dir))
-from OF_dataset.scripts.datasets import fabric, dataset
-from OF_dataset.scripts.augmentation import (io, compose, augment, photometric, FrameData)
+from of_dataset.datasets import fabric, dataset
+from of_dataset.augmentation import (io, compose, augment, photometric, FrameData)
 
 
 class BaseFlowDataset(Dataset):
@@ -2687,34 +2687,42 @@ class FrameworkDataset(BaseFlowDataset):
         self.sequence_length = 2
 
     def _generate_frame(self):
-        # Generate frames.
-        while (True):
-            dataset_front = random.choice(list(fabric.generate_variants("skoltech", render_mode=False)))
+        FOREGROUNDS_CNT = 9
+
+        # Load random background
+        while(True):
             dataset_back = random.choice(list(fabric.generate_variants("scannet", render_mode=False)))
-
-            # Choose frames
-            frame_front0 = random.choice(range(0, dataset_front.frames_count - 1))
             frame_back0 = random.choice(range(0, dataset_back.frames_count - 1))
-
-            data_front, frame_front1 = io.load_frame(dataset_front, frame_front0)
-            data_back, frame_back1 = io.load_frame(dataset_back, frame_back0)
-
-            if data_front != None and data_back != None:
+            data, frame_back1 = io.load_frame(dataset_back, frame_back0)
+            if data:
                 break
 
-        # Augment and compose
-        compose.resize(data_front, data_back.h, data_back.w)
+        # Load n random foregrounds
+        dataset_front = [None] * FOREGROUNDS_CNT
+        frame_front0 = [None] * FOREGROUNDS_CNT
+        frame_front1 = [None] * FOREGROUNDS_CNT
+        data_front = [None] * FOREGROUNDS_CNT
+        H_front = [None] * FOREGROUNDS_CNT
+        for i in range(FOREGROUNDS_CNT):
+            while(True):
+                dataset_front[i] = random.choice(list(fabric.generate_variants("skoltech", render_mode=False)))
+                frame_front0[i] = random.choice(range(0, dataset_front[i].frames_count - 1))
+                data_front[i], frame_front1[i] = io.load_frame(dataset_front[i], frame_front0[i])
+                if data_front[i]:
+                    break
 
-        H_front = augment.random(data_front)
-        H_back = augment.random(data_back)
-        augment.apply(data_front, H_front)
-        augment.apply(data_back, H_back)
+            compose.resize(data_front[i], data.h, data.w)
+            H_front[i] = augment.random(data_front[i])
+            augment.apply(data_front[i], H_front[i])
 
-        data = compose.by_mask(data_front, data_back)
+            shift_x, shift_y = compose.shift_position(data_front[i], i, FOREGROUNDS_CNT)
+            compose.shift(data_front[i], shift_x, shift_y)
+
+            data = compose.by_mask(data_front[i], data)
 
         photometric.random(data)
 
-        # io.write(data, frame_front0, frame_front1)
+        # io.write(data, frame_back0, frame_back1)
         return data.rgb0, data.rgb1, data.forward_flow, data.backward_flow, data.mask0
 
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
