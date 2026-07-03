@@ -17,8 +17,10 @@
 # =============================================================================
 
 import math
+import os
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import cv2 as cv
@@ -2686,40 +2688,65 @@ class FrameworkDataset(BaseFlowDataset):
         )
         self.root_dir = root_dir
         self.sequence_length = 2
+        self.foregrounds_count = 9
+        self._scannet_variants = list(fabric.generate_variants("scannet", render_mode=False))
+        self._skoltech_variants = list(fabric.generate_variants("skoltech", render_mode=False))
+        try:
+            self._object_workers = max(
+                1,
+                int(os.environ.get("FRAMEWORK_OBJECT_WORKERS", self.foregrounds_count + 1)),
+            )
+        except ValueError:
+            self._object_workers = self.foregrounds_count + 1
+
+    def _load_random_frame(self, variants):
+        while True:
+            dataset_cur = random.choice(variants)
+            frame0 = random.choice(range(0, dataset_cur.frames_count - 1))
+            data, frame1 = io.load_frame(dataset_cur, frame0)
+            if data:
+                return data, frame0, frame1
+
+    def _load_random_foreground(self, index):
+        data, frame0, frame1 = self._load_random_frame(self._skoltech_variants)
+        return index, data, frame0, frame1
+
+    def _prepare_foreground(self, index, data_front, target_h, target_w):
+        compose.resize(data_front, target_h, target_w)
+        H_front = augment.random(data_front)
+        augment.apply(data_front, H_front)
+
+        shift_x, shift_y = compose.shift_position(data_front, index, self.foregrounds_count)
+        compose.shift(data_front, shift_x, shift_y)
+
+        return index, data_front
 
     def _generate_frame(self):
-        FOREGROUNDS_CNT = 9
+        with ThreadPoolExecutor(max_workers=self._object_workers) as executor:
+            background_future = executor.submit(self._load_random_frame, self._scannet_variants)
+            foreground_futures = [
+                executor.submit(self._load_random_foreground, i)
+                for i in range(self.foregrounds_count)
+            ]
 
-        # Load random background
-        while(True):
-            dataset_back = random.choice(list(fabric.generate_variants("scannet", render_mode=False)))
-            frame_back0 = random.choice(range(0, dataset_back.frames_count - 1))
-            data, frame_back1 = io.load_frame(dataset_back, frame_back0)
-            if data:
-                break
+            data, frame_back0, frame_back1 = background_future.result()
 
-        # Load n random foregrounds
-        dataset_front = [None] * FOREGROUNDS_CNT
-        frame_front0 = [None] * FOREGROUNDS_CNT
-        frame_front1 = [None] * FOREGROUNDS_CNT
-        data_front = [None] * FOREGROUNDS_CNT
-        H_front = [None] * FOREGROUNDS_CNT
-        for i in range(FOREGROUNDS_CNT):
-            while(True):
-                dataset_front[i] = random.choice(list(fabric.generate_variants("skoltech", render_mode=False)))
-                frame_front0[i] = random.choice(range(0, dataset_front[i].frames_count - 1))
-                data_front[i], frame_front1[i] = io.load_frame(dataset_front[i], frame_front0[i])
-                if data_front[i]:
-                    break
+            data_front = [None] * self.foregrounds_count
+            for future in foreground_futures:
+                index, foreground, _, _ = future.result()
+                data_front[index] = foreground
 
-            compose.resize(data_front[i], data.h, data.w)
-            H_front[i] = augment.random(data_front[i])
-            augment.apply(data_front[i], H_front[i])
+            prepare_futures = [
+                executor.submit(self._prepare_foreground, i, data_front[i], data.h, data.w)
+                for i in range(self.foregrounds_count)
+            ]
 
-            shift_x, shift_y = compose.shift_position(data_front[i], i, FOREGROUNDS_CNT)
-            compose.shift(data_front[i], shift_x, shift_y)
+            for future in prepare_futures:
+                index, foreground = future.result()
+                data_front[index] = foreground
 
-            data = compose.by_mask(data_front[i], data)
+        for foreground in data_front:
+            data = compose.by_mask(foreground, data)
 
         photometric.random(data)
 
